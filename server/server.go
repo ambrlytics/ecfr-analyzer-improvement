@@ -46,6 +46,8 @@ func main() {
 	titleDAO := &dao.TitleDAO{Db: db}
 	titleImportDAO := &dao.TitleImportDAO{Db: db}
 	computedValueDAO := &dao.ComputedValueDAO{Db: db}
+	cfrStructureDAO := &dao.CfrStructureDAO{Db: db}
+	titleVersionDAO := &dao.TitleVersionDAO{Db: db}
 
 	agencyService := &service.AgencyService{AgencyDAO: agencyDAO}
 	agencyMetricService := &service.AgencyMetricService{AgencyDAO: agencyDAO, TitleDAO: titleDAO}
@@ -68,6 +70,28 @@ func main() {
 		AgencyDAO:        agencyDAO,
 		ComputedValueDAO: computedValueDAO,
 	}
+	cfrStructureService := &service.CfrStructureService{
+		TitleDAO:        titleDAO,
+		CfrStructureDAO: cfrStructureDAO,
+	}
+	titleVersionService := &service.TitleVersionService{
+		HttpClient:      ecfrBulkDataClient,
+		TitleDAO:        titleDAO,
+		TitleVersionDAO: titleVersionDAO,
+	}
+	changeTrackingService := &service.ChangeTrackingService{
+		TitleVersionDAO:  titleVersionDAO,
+		ComputedValueDAO: computedValueDAO,
+		TitleDAO:         titleDAO,
+	}
+	// Refactored service available for cleaner sub-agency logic
+	// Uncomment to use instead of the original ComputedValueService
+	// computedValueServiceRefactored := &service.ComputedValueServiceRefactored{
+	// 	TitleMetricService:  titleMetricService,
+	// 	AgencyMetricService: agencyMetricService,
+	// 	ComputedValueDAO:    computedValueDAO,
+	// 	AgencyDAO:           agencyDAO,
+	// }
 
 	registerAPIs(
 		[]api.API{
@@ -101,6 +125,18 @@ func main() {
 			&api.TitleImportAPI{
 				Router:             router,
 				TitleImportService: titleImportService,
+			},
+			&api.CfrStructureAPI{
+				Router:              router,
+				CfrStructureService: cfrStructureService,
+			},
+			&api.TitleVersionAPI{
+				Router:              router,
+				TitleVersionService: titleVersionService,
+			},
+			&api.ChangeTrackingAPI{
+				Router:                router,
+				ChangeTrackingService: changeTrackingService,
 			},
 		},
 	)
