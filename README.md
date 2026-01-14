@@ -20,6 +20,8 @@ The following tables make up the data model for this application:
   the [/admin/v1/agencies.json](https://www.ecfr.gov/developers/documentation/api/v1#/) API
 * `title`: Stores title XML downloaded from the [ECFR Bulk Data Repository](https://www.govinfo.gov/bulkdata/ECFR)
 * `computed_value`: A key-value store for computed metrics
+* `cfr_structure`: Stores the hierarchical structure of CFR documents (DIV1-DIV9 elements) with precomputed text values for efficient querying
+* `title_version`: Stores historical versions of CFR titles for change tracking over time
 
 [Source](https://github.com/sam-berry/ecfr-analyzer/blob/main/server/sql/ecfr_analyzer.sql)
 
@@ -96,7 +98,43 @@ To process metrics for all sub-agencies, run:
 curl -X POST -H 'Authorization: Bearer TOKEN' 'URL_ROOT/ecfr-service/compute/sub-agency-metrics'
 ```
 
-These 5 steps will generate all of the data needed to power the UI with constant lookup times.
+### Step 6 (Optional): Parse CFR Structure
+
+To parse and store the hierarchical structure of CFR documents for efficient querying:
+
+```
+curl -X POST -H 'Authorization: Bearer TOKEN' 'URL_ROOT/ecfr-service/parse/cfr-structure'
+```
+
+This will process all titles and extract chapters, parts, sections, etc. as structured data. You can also filter specific titles:
+
+```
+curl -X POST -H 'Authorization: Bearer TOKEN' 'URL_ROOT/ecfr-service/parse/cfr-structure?titles=1,2,3'
+```
+
+### Step 7 (Optional): Import Historical Titles
+
+To import historical CFR title versions for change tracking:
+
+```
+curl -X POST -H 'Authorization: Bearer TOKEN' 'URL_ROOT/ecfr-service/import/historical-titles?date=2024-01-01'
+```
+
+You can also filter specific titles:
+
+```
+curl -X POST -H 'Authorization: Bearer TOKEN' 'URL_ROOT/ecfr-service/import/historical-titles?date=2024-01-01&titles=1,2,3'
+```
+
+### Step 8 (Optional): Compute Changes Between Dates
+
+To compute and store metrics about changes between two versions:
+
+```
+curl -X POST -H 'Authorization: Bearer TOKEN' 'URL_ROOT/ecfr-service/compute/changes?startDate=2024-01-01&endDate=2024-12-31'
+```
+
+These steps will generate all of the data needed to power the UI with constant lookup times.
 
 ## Development Setup
 
@@ -126,8 +164,10 @@ export ECFR_DEVELOPMENT="true"
 3. `psql ecfr`
 4. `grant all privileges on database ecfr to "ecfr-app";`
 5. `grant all on schema public TO "ecfr-app";`
-6. Run statements
-   in [ecfr_analyzer.sql](https://github.com/sam-berry/ecfr-analyzer/blob/main/server/sql/ecfr_analyzer.sql)
+6. Run statements in [ecfr_analyzer.sql](https://github.com/sam-berry/ecfr-analyzer/blob/main/server/sql/ecfr_analyzer.sql)
+7. Run migration scripts in `server/sql/migrations/` for new features:
+   - `001_add_cfr_structure.sql` - Adds structured CFR data table
+   - `002_add_title_version.sql` - Adds historical title version tracking
 
 ### Run Server
 
@@ -154,13 +194,43 @@ WHERE cv.id IS NULL;
 
 Failed agencies can be run individually, or in bulk via the [`import-specific-agencies.sh`](https://github.com/sam-berry/ecfr-analyzer/blob/main/server/scripts/import-specific-agencies.sh) script.
 
-## Areas for Improvement
+## Recent Improvements
 
-* Precompute text values for title XML. Write a job to parse the entire CFR and save
-  chapters/parts/sections/etc as structured data that can be easily queried. Do not need XLST for
-  this, can be done by iterating through the tree and following the DIV# guidelines.
-* Create common Goroutine runner that encapsulates the channel and wait group processing, as it is
-  similar throughout the project
-* Subagencies metric import - this was an experiment that ended up working, but it could be handled cleaner
-  instead of passing the `onlySubAgencies` variable and forking the top-level logic
-* Import historical CFR records and compute metrics based on changes over time
+### Structured CFR Data
+The application now parses CFR XML documents and stores the hierarchical structure (DIV1-DIV9 elements) as structured data in the `cfr_structure` table. This enables:
+- Efficient querying of chapters, parts, sections, and other CFR elements without XPath operations
+- Precomputed word counts for each structural element
+- Fast lookups by hierarchical path or element type
+
+### Common Goroutine Runner
+A reusable concurrent processing utility (`concurrent.Runner`) has been implemented to standardize goroutine, channel, and wait group patterns throughout the codebase. This provides:
+- Configurable concurrency limits
+- Consistent error handling and logging
+- Simplified concurrent processing in services
+
+### Refactored Sub-Agency Logic
+The sub-agency metrics computation has been refactored to eliminate the `onlySubAgencies` flag parameter. The new `ComputedValueServiceRefactored` provides:
+- Separate methods for agency and sub-agency processing (`ProcessAgencyMetrics` and `ProcessSubAgencyMetrics`)
+- Cleaner separation of concerns
+- Easier to understand and maintain code
+
+### Historical CFR Tracking
+The application now supports importing and tracking historical versions of CFR titles with:
+- `TitleVersionService` for importing historical data
+- `ChangeTrackingService` for computing metrics about changes over time
+- APIs to query changes between dates and generate change reports
+- Analysis of word count and section count changes
+
+### New API Endpoints
+
+**CFR Structure:**
+- `POST /ecfr-service/parse/cfr-structure` - Parse and store CFR hierarchical structure
+
+**Historical Titles:**
+- `POST /ecfr-service/import/historical-titles` - Import historical title versions
+
+**Change Tracking:**
+- `POST /ecfr-service/compute/changes` - Compute changes between dates
+- `GET /ecfr-service/changes/summary` - Get change summary for date range
+- `GET /ecfr-service/changes/top` - Get titles with most significant changes
+- `GET /ecfr-service/changes/report` - Generate human-readable change report

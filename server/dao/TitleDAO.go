@@ -125,14 +125,14 @@ func (d *TitleDAO) CountAgencySections(ctx context.Context, agencyName string, t
 	var count int
 	err := d.Db.QueryRowContext(
 		ctx,
-		`SELECT 
+		`SELECT
              SUM(COALESCE(
                  (XPATH(
                      'count((//BODY//HEAD[contains(translate(., "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "' || $1 || '")]/..//DIV8))',
                      content
                  ))[1]::TEXT::NUMERIC,
-             0)) 
-        FROM title 
+             0))
+        FROM title
         WHERE name = ANY($2);`,
 		strings.ToLower(agencyName),
 		pq.Array(titles),
@@ -143,4 +143,56 @@ func (d *TitleDAO) CountAgencySections(ctx context.Context, agencyName string, t
 	}
 
 	return count, nil
+}
+
+// GetContent retrieves the XML content for a title
+func (d *TitleDAO) GetContent(ctx context.Context, titleNumber int) (
+	string,
+	error,
+) {
+	var content string
+	err := d.Db.QueryRowContext(
+		ctx,
+		`SELECT content::TEXT
+         FROM title
+         WHERE name = $1`,
+		titleNumber,
+	).Scan(&content)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", fmt.Errorf("title %d not found", titleNumber)
+		}
+		return "", fmt.Errorf("error getting title content for %d: %w", titleNumber, err)
+	}
+
+	return content, nil
+}
+
+// FindByNumber finds a title by its number
+func (d *TitleDAO) FindByNumber(ctx context.Context, titleNumber int) (
+	*data.Title,
+	error,
+) {
+	var title data.Title
+	err := d.Db.QueryRowContext(
+		ctx,
+		`SELECT id, titleId, name
+         FROM title
+         WHERE name = $1`,
+		titleNumber,
+	).Scan(
+		&title.InternalId,
+		&title.Id,
+		&title.Name,
+	)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("title %d not found", titleNumber)
+		}
+		return nil, fmt.Errorf("error finding title %d: %w", titleNumber, err)
+	}
+
+	return &title, nil
 }
